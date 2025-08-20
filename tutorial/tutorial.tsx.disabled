@@ -1,0 +1,68 @@
+// src/pages/tutorial.tsx
+import React from 'react';
+import { Navigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import InteractiveTutorialPlayer from '@/components/tutorial/InteractiveTutorialPlayer';
+import { useInteractiveTutorial } from '@/hooks/useInteractiveTutorial'; // legacy (UUID) only
+
+function NewTutorialView({ id }: { id: string }) {
+  const defQ = useQuery({
+    queryKey: ['tutorial_definition', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tutorial_definitions')
+        .select('id, title, payload_json')
+        .eq('id', id)
+        .single();
+      if (error) throw error;
+      return data as { id: string; title: string; payload_json: any };
+    },
+  });
+
+  if (defQ.isLoading) return <div className="p-6">Loading…</div>;
+  const content = defQ.data?.payload_json;
+  if (!content?.steps || !Array.isArray(content.steps)) {
+    return (
+      <div className="p-6">
+        <h2 className="text-lg font-semibold mb-2">Tutorial not found</h2>
+        <p className="text-muted-foreground">
+          We couldn’t load <code>{id}</code>. Make sure it’s inserted in <code>tutorial_definitions</code>.
+        </p>
+      </div>
+    );
+  }
+  return <InteractiveTutorialPlayer tutorialId={id} content={content} />;
+}
+
+function LegacyTutorialView({ id }: { id: string }) {
+  const legacyQ = useInteractiveTutorial(id);
+  if (legacyQ.isLoading) return <div className="p-6">Loading…</div>;
+  const legacy = legacyQ.data;
+  const content = legacy?.tutorial?.content;
+  if (!content?.steps) {
+    return (
+      <div className="p-6">
+        <h2 className="text-lg font-semibold mb-2">Legacy tutorial not found</h2>
+        <p className="text-muted-foreground">Please contact support.</p>
+      </div>
+    );
+  }
+  return <InteractiveTutorialPlayer tutorialId={legacy?.tutorial?.id} content={content} />;
+}
+
+export default function TutorialPage() {
+  const params = useParams<{ id?: string }>();
+  const [search] = useSearchParams();
+
+  const id = (params.id ?? search.get('id') ?? '').trim();
+  if (!id) return <div className="p-6">Missing tutorial id.</div>;
+
+  // redirect legacy /tutorial/1 to the migrated Level-1
+  if (id === '1') return <Navigate to="/tutorial/TUT-101" replace />;
+
+  return id.startsWith('TUT-')
+    ? <NewTutorialView id={id} />
+    : <LegacyTutorialView id={id} />;
+}
